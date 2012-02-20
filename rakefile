@@ -1,0 +1,111 @@
+require 'net/http'
+require 'uri'
+
+
+filename = "neo4j-enterprise-1.6.1"
+tarfile = filename + "-unix.tar.gz"
+machines = ["machineA", "machineB", "machineC"]
+
+task :default => 'qa'
+
+task :download_neo4j do
+  
+  if !File::exists? tarfile
+
+    uri = "dist.neo4j.org"
+
+    Net::HTTP.start(uri) do |http|
+      begin
+       file = open(tarfile, 'wb')
+       http.request_get("/" + tarfile) do |response|
+        response.read_body do |segment|
+         file.write(segment)
+        end
+       end
+      ensure
+       file.close
+      end
+    end
+  end
+end
+
+task :untar => tarfile do 
+  puts "untarring: " + tarfile
+  command = "tar -xzf " + tarfile
+  system(command)
+end
+
+task :clone do
+ 
+  machines.each do |machine| 
+    FileUtils::copy_entry filename, machine, preserve=true, remove_destination=true
+  end
+
+end
+
+def replace_in_file(regex, replacement, file)
+  text = File.read(file) 
+
+puts regex
+
+  str = text.gsub(regex, replacement)
+
+  if str == text 
+   puts "OHNOES"
+  end
+
+  File.open(file, "w") { |file| file << str }
+end
+
+task :change_config do
+  zk_client_port = 2181
+  web_server_port = 7474
+  https_port = 8484
+  ha_server_id = 1
+  ha_server = 6001
+
+  machines.each do |machine| 
+
+#    replace_in_file("#ha.coordinators=localhost:2181", "ha.coordinators=localhost:2181" + zk_client_port.to_s, machine + "/conf/neo4j.properties")  
+    replace_in_file('#ha.cluster_name =', "ha.cluster_name=local.jvm.only.cluster", machine + "/conf/neo4j.properties")  
+    replace_in_file('#ha.server_id=', "ha.server_id=" + ha_server_id.to_s, machine + "/conf/neo4j.properties")
+    replace_in_file("#ha.server = localhost:6001", "ha.server = localhost:" + ha_server.to_s + "/", machine + "/conf/neo4j.properties")
+    ha_server_id += 1
+    ha_server += 1
+
+    replace_in_file("clientPort=2181", "clientPort=" + zk_client_port.to_s, machine + "/conf/coord.cfg")
+    zk_client_port += 1
+
+
+    replace_in_file('org.neo4j.server.webserver.port=7474', "org.neo4j.server.webserver.port=" + web_server_port.to_s, machine + "/conf/neo4j-server.properties")
+	web_server_port += 1
+    
+    replace_in_file('org.neo4j.server.webserver.https.port=7473', "org.neo4j.server.webserver.https.port=" + https_port.to_s, machine + "/conf/neo4j-server.properties")
+    https_port += 1
+    
+    replace_in_file('#org.neo4j.server.database.mode=HA', "org.neo4j.server.database.mode=HA", machine + "/conf/neo4j-server.properties")
+    
+  end
+
+end
+
+task :qa => [:download_neo4j, :untar, :clone, :change_config] do
+  # Create a node
+  # Make sure it's propagated to the slaves
+end
+
+task :clean do
+
+  if File::exists? tarfile
+    #File::delete tarfile
+  end
+
+  if File::exists? filename
+    FileUtils::rm_rf filename
+  end
+
+  machines.each do |m|
+    FileUtils::rm_rf m
+  end
+
+end

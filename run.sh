@@ -1,0 +1,11 @@
+#!/bin/bash
+
+NEO4J_PRODUCT=enterprise
+NEO4J_VERSION=1.6.1
+NEO4J_TARBALL=neo4j-$NEO4J_PRODUCT-$NEO4J_VERSION-unix.tar.gz
+NEO4J_DOWNLOAD=http://dist.neo4j.org/$NEO4J_TARBALL
+
+curl -O $NEO4J_DOWNLOAD
+
+tar -zxf $NEO4J_TARBALL
+
