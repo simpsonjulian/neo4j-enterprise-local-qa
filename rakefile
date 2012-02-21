@@ -1,9 +1,13 @@
 require 'net/http'
 require 'uri'
 
-
+# This is where you configure the product version
 filename = "neo4j-enterprise-1.6.1"
+
+# You probably don't need to touch this
 tarfile = filename + "-unix.tar.gz"
+
+# Three machines by default. You can add more, but be sure to give each a unique name
 machines = ["machineA", "machineB", "machineC"]
 
 task :default => 'qa'
