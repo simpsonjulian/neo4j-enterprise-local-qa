@@ -45,17 +45,33 @@ end
 
 def replace_in_file(regex, replacement, file)
   text = File.read(file) 
-
-puts regex
-
   str = text.gsub(regex, replacement)
-
-  if str == text 
-   puts "OHNOES"
-  end
-
   File.open(file, "w") { |file| file << str }
 end
+
+def coordinators_list(machines)
+  port = 2181
+  str = "ha.coordinators="
+
+  (0..machines.length).each do |i|
+    port +=i
+    str << "localhost:" << port.to_s << ","
+  end
+ 
+  str.chomp(',')
+end
+
+def server_list(machines)
+  str = ""
+
+  (1..machines.length).each do |i|
+    str << "server." << i.to_s << "=localhost:2888:3888\n"
+  end
+ 
+  str
+ 
+end
+
 
 task :change_config do
   zk_client_port = 2181
@@ -63,17 +79,24 @@ task :change_config do
   https_port = 8484
   ha_server_id = 1
   ha_server = 6001
+  jmx_port = 3637
+  machine_list = server_list(machines)
 
   machines.each do |machine| 
 
-#    replace_in_file("#ha.coordinators=localhost:2181", "ha.coordinators=localhost:2181" + zk_client_port.to_s, machine + "/conf/neo4j.properties")  
+    replace_in_file('ha.pull_interval = 10', 'ha.pull_interval = 1', machine + "/conf/neo4j.properties")
+    replace_in_file('#ha.coordinators=localhost:2181', coordinators_list(machines), machine + "/conf/neo4j.properties")  
     replace_in_file('#ha.cluster_name =', "ha.cluster_name=local.jvm.only.cluster", machine + "/conf/neo4j.properties")  
     replace_in_file('#ha.server_id=', "ha.server_id=" + ha_server_id.to_s, machine + "/conf/neo4j.properties")
-    replace_in_file("#ha.server = localhost:6001", "ha.server = localhost:" + ha_server.to_s + "/", machine + "/conf/neo4j.properties")
+    replace_in_file("#ha.server = localhost:6001", "ha.server = localhost:" + ha_server.to_s, machine + "/conf/neo4j.properties")
     ha_server_id += 1
     ha_server += 1
 
-    replace_in_file("clientPort=2181", "clientPort=" + zk_client_port.to_s, machine + "/conf/coord.cfg")
+    replace_in_file('server.1=localhost:2888:3888', machine_list, machine + "/conf/coord.cfg")
+    replace_in_file('#server.2=my_second_server:2889:3889', "", machine + "/conf/coord.cfg")
+    replace_in_file('#server.3=192.168.1.1:2890:3890', "", machine + "/conf/coord.cfg")
+	
+    replace_in_file('clientPort=2181', "clientPort=" + zk_client_port.to_s, machine + "/conf/coord.cfg")
     zk_client_port += 1
 
 
@@ -85,27 +108,52 @@ task :change_config do
     
     replace_in_file('#org.neo4j.server.database.mode=HA', "org.neo4j.server.database.mode=HA", machine + "/conf/neo4j-server.properties")
     
+    replace_in_file('#wrapper.java.additional.3=-Dcom.sun.management.jmxremote.port=3637', "wrapper.java.additional.3=-Dcom.sun.management.jmxremote.port=" + jmx_port.to_s, machine + "/conf/neo4j-wrapper.conf")
+    replace_in_file('#wrapper.java.additional.4=-Dcom.sun.management.jmxremote.authenticate=true', "wrapper.java.additional.4=-Dcom.sun.management.jmxremote.authenticate=false" + jmx_port.to_s, machine + "/conf/neo4j-wrapper.conf")
+    jmx_port += 1
+
   end
 
 end
 
-task :qa => [:download_neo4j, :untar, :clone, :change_config] do
+task :start_coordinators do
+  count = 1
+  machines.each do |machine|
+	File.open(machine + "/data/coordinator/myid", "w") { |file| file << count }
+	count += 1
+  end
+
+  machines.each do |machine|
+    system(machine + "/bin/neo4j-coordinator start")
+  end
+
+end
+
+task :start_cluster do
+  machines.each do |machine|
+    system(machine + "/bin/neo4j start")
+  end
+end
+
+task :qa => [:download_neo4j, :untar, :clone, :change_config, :start_coordinators, :start_cluster] do
   # Create a node
   # Make sure it's propagated to the slaves
 end
 
 task :clean do
-
-  if File::exists? tarfile
-    #File::delete tarfile
-  end
-
   if File::exists? filename
     FileUtils::rm_rf filename
   end
 
   machines.each do |m|
     FileUtils::rm_rf m
+  end
+end
+
+task :nuke => [:clean] do
+
+  if File::exists? tarfile
+    File::delete tarfile
   end
 
 end
