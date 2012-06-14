@@ -1,7 +1,7 @@
 require 'net/http'
 require 'uri'
 require 'rake/clean'
-NEO4J_VERSION="1.6.2"
+NEO4J_VERSION = ENV['VERSION'] ? ENV['VERSION'] : '1.8-SNAPSHOT'
 
 local_ip = 'localhost'
 
@@ -95,32 +95,42 @@ end
 
 task :change_config do
   machine_list = server_list(machines, local_ip)
-  i = 0
-  machines.each do |machine|
 
-    replace_in_file('ha.pull_interval = 10', 'ha.pull_interval = 1ms', machine + "/conf/neo4j.properties")
-    replace_in_file('#ha.coordinators=localhost:2181', coordinators_list(machines, local_ip, zk_client_port), machine + "/conf/neo4j.properties")
-    replace_in_file('#ha.cluster_name =', "ha.cluster_name="+cluster_name, machine + "/conf/neo4j.properties")
-    replace_in_file('enable_online_backup=true', "enable_online_backup=port=#{(backup_port + 1).to_s}", machine + "/conf/neo4j.properties")
-    replace_in_file('#ha.server_id=', "ha.server_id=" +(ha_server_id+i).to_s, machine + "/conf/neo4j.properties")
-    replace_in_file("#ha.server = localhost:6001", "ha.server = "+local_ip+":" + (ha_server+i).to_s, machine + "/conf/neo4j.properties")
+  machines.each_with_index do |machine, i|
 
-    replace_in_file('server.1=localhost:2888:3888', machine_list, machine + "/conf/coord.cfg")
-    replace_in_file('#server.2=my_second_server:2889:3889', "", machine + "/conf/coord.cfg")
-    replace_in_file('#server.3=192.168.1.1:2890:3890', "", machine + "/conf/coord.cfg")
-
-    replace_in_file('clientPort=2181', "clientPort=" + (zk_client_port+i).to_s, machine + "/conf/coord.cfg")
+    local_ha_server_port = (ha_server+i).to_s
+    local_web_server_port = (web_server_port+i).to_s
+    local_backup_port = (backup_port + i).to_s
+    local_zk_client_port = (zk_client_port+i).to_s
+    local_web_server_https_port = (https_port+i).to_s
+    local_ha_server_id = (ha_server_id+i).to_s
+    local_jmx_port = (jmx_port+i).to_s
 
 
-    replace_in_file('org.neo4j.server.webserver.port=7474', "org.neo4j.server.webserver.port=" + (web_server_port+i).to_s, machine + "/conf/neo4j-server.properties")
+    replace_in_file('ha.pull_interval = 10', 'ha.pull_interval = 1ms', "#{machine}/conf/neo4j.properties")
+    replace_in_file('#ha.coordinators=localhost:2181', coordinators_list(machines, local_ip, zk_client_port), "#{machine}/conf/neo4j.properties")
+    replace_in_file('#ha.cluster_name =', "ha.cluster_name=#{cluster_name}", "#{machine}/conf/neo4j.properties")
+    replace_in_file('enable_online_backup=true', "enable_online_backup=port=#{local_backup_port}", "#{machine}/conf/neo4j.properties")
+    replace_in_file('#ha.server_id=', "ha.server_id=#{local_ha_server_id}", "#{machine}/conf/neo4j.properties")
+    replace_in_file("#ha.server = localhost:6001", "ha.server = #{local_ip}:#{local_ha_server_port}", "#{machine}/conf/neo4j.properties")
 
-    replace_in_file('org.neo4j.server.webserver.https.port=7473', "org.neo4j.server.webserver.https.port=" + (https_port+i).to_s, machine + "/conf/neo4j-server.properties")
+    replace_in_file('server.1=localhost:2888:3888', machine_list, "#{machine}/conf/coord.cfg")
+    replace_in_file('#server.2=my_second_server:2889:3889', "", "#{machine}/conf/coord.cfg")
+    replace_in_file('#server.3=192.168.1.1:2890:3890', "", "#{machine}/conf/coord.cfg")
 
-    replace_in_file('#org.neo4j.server.database.mode=HA', "org.neo4j.server.database.mode=HA", machine + "/conf/neo4j-server.properties")
+    replace_in_file('clientPort=2181', "clientPort=#{local_zk_client_port}", "#{machine}/conf/coord.cfg")
 
-    replace_in_file('#wrapper.java.additional.3=-Dcom.sun.management.jmxremote.port=3637', "wrapper.java.additional.3=-Dcom.sun.management.jmxremote.port=" + (jmx_port+i).to_s, machine + "/conf/neo4j-wrapper.conf")
-    replace_in_file('#wrapper.java.additional.4=-Dcom.sun.management.jmxremote.authenticate=true', "wrapper.java.additional.4=-Dcom.sun.management.jmxremote.authenticate=false" + (jmx_port+i).to_s, machine + "/conf/neo4j-wrapper.conf")
-    i += 1
+
+    replace_in_file('org.neo4j.server.webserver.port=7474', "org.neo4j.server.webserver.port=#{local_web_server_port}", "#{machine}/conf/neo4j-server.properties")
+    replace_in_file('NEO4J_SERVER_PORT=${org_neo4j_server_webserver_port:=7474}', "NEO4J_SERVER_PORT=${org_neo4j_server_webserver_port:=#{local_web_server_port}}", "#{machine}/bin/neo4j")
+
+    replace_in_file('org.neo4j.server.webserver.https.port=7473', "org.neo4j.server.webserver.https.port=#{local_web_server_https_port}", "#{machine}/conf/neo4j-server.properties")
+
+    replace_in_file('#org.neo4j.server.database.mode=HA', "org.neo4j.server.database.mode=HA", "#{machine}/conf/neo4j-server.properties")
+
+    replace_in_file('#wrapper.java.additional.3=-Dcom.sun.management.jmxremote.port=3637', "wrapper.java.additional.3=-Dcom.sun.management.jmxremote.port=#{local_jmx_port}", "#{machine}/conf/neo4j-wrapper.conf")
+    replace_in_file('#wrapper.java.additional.4=-Dcom.sun.management.jmxremote.authenticate=true', "wrapper.java.additional.4=-Dcom.sun.management.jmxremote.authenticate=false#{local_jmx_port}", "#{machine}/conf/neo4j-wrapper.conf")
+
   end
 
 end
