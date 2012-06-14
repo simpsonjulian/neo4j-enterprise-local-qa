@@ -25,8 +25,21 @@ ha_server = 6001
 jmx_port = 3637
 backup_port = 1234
 
+def replace_in_file(regex, replacement, file)
+  text = File.read(file)
+  str = text.gsub(regex, replacement)
+  File.open(file, "w") { |file| file << str }
+end
 
-task :default => :qa
+def coordinators_list(machines, local_ip, start_port)
+  str = "ha.coordinators="
+  machines = (1..machines.length).collect { |i| "#{local_ip}:#{(start_port + i) -1 }"  }.join(',')
+  str + machines
+end
+
+def server_list(machines, local_ip)
+  (1..machines.length).collect {|i| "server.#{i}=#{local_ip}:#{(2888 +i-1)}:#{(3888 +i-1)}\n" }.to_s
+end
 
 task :download_neo4j do
   puts 'Looking for: ' + archive
@@ -49,45 +62,13 @@ task :uncompress => :download_neo4j do
 end
 
 task :clone => :uncompress do
-
-  machines.each do |machine|
-    cp_r filename, machine
-  end
-
-end
-
-def replace_in_file(regex, replacement, file)
-  text = File.read(file)
-  str = text.gsub(regex, replacement)
-  File.open(file, "w") { |file| file << str }
-end
-
-def coordinators_list(machines, local_ip, start_port)
-  str = "ha.coordinators="
-
-  (1..machines.length).each do |i|
-    str << local_ip << ":" << start_port.to_s << ","
-    start_port += 1
-  end
-
-  str.chomp(',')
-end
-
-def server_list(machines, local_ip)
-  str = ""
-  (1..machines.length).each do |i|
-    str << "server." << i.to_s << "=" << local_ip << ":" << (2888 +i-1).to_s << ":" << (3888 +i-1).to_s << "\n"
-  end
-
-  str
-
+  machines.each { |machine| cp_r filename, machine }
 end
 
 def neo_command(command)
   commands = {:windows => {:backup => 'Neo4jBackup.bat', :shell => 'Neo4jShell',  :coordinator => 'Neo4jCoordinator'},
-   :unix =>    {:backup => 'neo4j-backup',    :shell => 'neo4j-shell', :coordinator => 'neo4j-coordinator'}
+   :unix =>    {:backup => 'neo4j-backup',    :shell => 'neo4j-shell', :coordinator => 'neo4j-coordinator'}}
 
-  }
   platform = RUBY_PLATFORM =~ /i386/   ? :windows : :unix
   commands[platform][command.to_sym]
 end
@@ -106,7 +87,6 @@ task :change_config do
     local_ha_server_id = (ha_server_id+i).to_s
     local_jmx_port = (jmx_port+i).to_s
 
-
     replace_in_file('ha.pull_interval = 10', 'ha.pull_interval = 1ms', "#{machine}/conf/neo4j.properties")
     replace_in_file('#ha.coordinators=localhost:2181', coordinators_list(machines, local_ip, zk_client_port), "#{machine}/conf/neo4j.properties")
     replace_in_file('#ha.cluster_name =', "ha.cluster_name=#{cluster_name}", "#{machine}/conf/neo4j.properties")
@@ -119,7 +99,6 @@ task :change_config do
     replace_in_file('#server.3=192.168.1.1:2890:3890', "", "#{machine}/conf/coord.cfg")
 
     replace_in_file('clientPort=2181', "clientPort=#{local_zk_client_port}", "#{machine}/conf/coord.cfg")
-
 
     replace_in_file('org.neo4j.server.webserver.port=7474', "org.neo4j.server.webserver.port=#{local_web_server_port}", "#{machine}/conf/neo4j-server.properties")
     replace_in_file('NEO4J_SERVER_PORT=${org_neo4j_server_webserver_port:=7474}', "NEO4J_SERVER_PORT=${org_neo4j_server_webserver_port:=#{local_web_server_port}}", "#{machine}/bin/neo4j")
@@ -160,8 +139,6 @@ end
 
 task :setup_cluster => [:clone, :change_config, :start_coordinators, :start_cluster]
 
-task :qa => [:download_neo4j, :setup_cluster, :test]
-
 task :test => :setup_cluster do
 
 # Create a node on machineA
@@ -182,3 +159,7 @@ task :test => :setup_cluster do
   sh(machines[2].to_s + "/bin/#{neo_command(:backup)} -incremental -from ha://"+local_ip+":"+(zk_client_port+1).to_s + " -to " + machines[2].to_s+ "/backup -ha.cluster_name "+cluster_name)
 
 end
+
+task :qa => [:download_neo4j, :setup_cluster, :test]
+
+task :default => :qa
